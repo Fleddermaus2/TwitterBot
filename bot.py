@@ -1,6 +1,7 @@
 import os
 import tweepy
 import json
+import markovify
 from secrets import *
 from time import gmtime, strftime
 
@@ -9,11 +10,13 @@ bot_username = '626f74'
 logfile_name = bot_username + ".log"
 datafile_name = bot_username + "_data.json"
 whitelist_name = "whitelist.json"
+corpus_name = "corpus.txt"
 
 # ==============================================================
 
 # Variables
 count = 0
+text_model = ""
 
 # Twitter authentication
 auth = tweepy.OAuthHandler(C_KEY, C_SECRET)
@@ -26,34 +29,46 @@ own_id = me.id
 
 class MyStreamListener(tweepy.StreamListener):
     def on_status(self, status):
+        # not me
         if status.user.id != own_id:
+            # user in whitelist
             if user_authorized(status.user.id):
                 if status.text.find("hello") > 7:
-                    tweet_text = create_tweet(status.user.screen_name)
+                    # tweet hello
+                    tweet_text = create_tweet(status.user.screen_name, 0)
+                    tweet(tweet_text, status.id)
+                else:
+                    # tweet markov
+                    tweet_text = create_tweet(status.user.screen_name, 1)
                     tweet(tweet_text, status.id)
             else:
+                # add user if requested
                 if status.text.find("add me") > 7:
                     whitelist_user(status.user.id)
-        else:
-            print('own post, ignore them')
 
     def on_error(self, status_code):
         if status_code == 420:
             return False
 
 
-def create_tweet(name):
+def create_tweet(name, tweet_type):
     """Create the text of the tweet you want to send."""
-    # Replace this with your code!
-    counter = get_counter()
-    text = "Hello @" + name + " " + str(counter)
-    set_counter(counter + 1)
+    if tweet_type == 0:
+        # tweet hello with counter because of double
+        counter = get_counter()
+        text = "Hello @" + name + " " + str(counter)
+        set_counter(counter + 1)
+    else:
+        # tweet sherlock
+        text = "@" + name + " " + text_model.make_short_sentence(139)
+
     return text
 
 
-def tweet(text, tweetID = 0):
+def tweet(text, tweetID=0):
     """Send out the text as a tweet."""
     # Send the tweet and log success or failure
+    print("tweet ID", tweetID)
     try:
         if tweetID != 0:
             api.update_status(text, tweetID)
@@ -63,6 +78,7 @@ def tweet(text, tweetID = 0):
         log(e.message)
     else:
         log("Tweeted: " + text)
+        print("Tweeted")
 
 
 def log(message):
@@ -122,16 +138,19 @@ def get_user_name(user_id):
     u = api.get_user(user_id)
     return u.screen_name
 
+
+def prepare_markov():
+    # raw text as string
+    with open(corpus_name) as f:
+        corpus = f.read()
+    # build model
+    global text_model
+    text_model = markovify.Text(corpus, state_size=3)
+
+
 if __name__ == "__main__":
+    prepare_markov()
 
-    """tweet_text = create_tweet()
-    tweet(tweet_text)"""
-
-    """for status in tweepy.Cursor(api.mentions_timeline).items(10):
-        print(count, ":", status.text)
-        count += 1"""
-
-    print('start stream listener')
     myStreamListener = MyStreamListener()
     myStream = tweepy.Stream(auth=auth, listener=myStreamListener)
     myStream.filter(follow=[own_id_str])
